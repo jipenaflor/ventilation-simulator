@@ -1,0 +1,72 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  =========                 |
+  \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox
+   \\    /   O peration     | Website:  https://openfoam.org
+    \\  /    A nd           | Version:  9
+     \\/     M anipulation  |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      nut;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+dimensions      [0 2 -1 0 0 0 0];
+
+internalField   uniform 0;
+
+boundaryField
+{
+    #include "include/ABLConditions"
+
+    classroom
+    {
+        type            nutkAtmRoughWallFunction;
+        z0              $z0;
+        value           uniform 0.0;
+    }
+    
+    inlet
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    outlet
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    classroom
+    {
+        type            nutkAtmRoughWallFunction;
+        z0              $z0;
+        value           uniform 0.0;
+    }
+
+    frontAndBack
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    lowerWall
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+
+    upperWall
+    {
+        type            calculated;
+        value           uniform 0;
+    }
+    
+}
+
+
+// ************************************************************************* //

@@ -1,0 +1,5 @@
+[console_scripts]
+ventilation-simulator = ventilation_simulator.app:main
+
+[jupyter_serverproxy_servers]
+ventilation-simulator = ventilation_simulator.app.jupyter:jupyter_proxy_info

@@ -1,0 +1,46 @@
+Metadata-Version: 2.1
+Name: ventilation-simulator
+Version: 1.0.0
+Summary: A Trame application that performs natural and mechanical ventilation simulation using OpenFOAM
+Author: jipenaflor
+License: Other
+Keywords: Python,Interactive,Web,Application,Framework
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Web Environment
+Classifier: License :: Other/Proprietary License
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: Programming Language :: JavaScript
+Classifier: Topic :: Software Development :: Libraries :: Application Frameworks
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Description-Content-Type: text/x-rst
+
+=====================
+Ventilation Simulator
+=====================
+
+A Trame application that performs natural and mechanical ventilation simulation using OpenFOAM
+
+
+
+Installing
+----------
+
+Install the application
+
+.. code-block:: console
+
+    pip install -e .
+
+
+Run the application
+
+.. code-block:: console
+
+    ventilation-simulator
+
+Features
+--------
+
+* TODO
