@@ -35,9 +35,8 @@ class Engine:
         # initialize state + controller
         state, ctrl = server.state, server.controller
 
-        # Set state variable
+        # Set title
         state.trame__title = "Ventilation Simulator"
-        state.resolution = 6
 
         # Bind instance methods to controller
         ctrl.on_server_reload = self.ui
@@ -49,6 +48,8 @@ class Engine:
         state.change("myHeight")(self.set_height)
         state.change("inlet")(self.set_inlet)
         state.change("outlet")(self.set_outlet)
+        #state.change("setProgress")(self.update_setProgress)
+
         state.change("myWindSpeed")(self.set_windSpeed)
         state.change("myWindHeight")(self.set_windHeight)
         state.change("aeroRoughness")(self.set_aeroRoughness)
@@ -59,7 +60,7 @@ class Engine:
         shutil.copytree('./simulation', self.user.name, dirs_exist_ok=True)
         self.USER_DIR = self.user.name
 
-        # Initialize internal variables
+        # Initialize internal and state variables
         self.FILENAME = ""
         self.USER_STL = ""
 
@@ -69,14 +70,15 @@ class Engine:
         self.inlet = ""
         self.outlet = ""
         self.toSet = False
-        self.setSuccess = True
+        self.setSuccess = False
+        #state.setProgress = 0
 
         state.windSpeed = ""
         state.windHeight = ""
         self.windDirection = ""
         self.aeroRoughness = ""
         state.simTime = ""
-        self.toSimulate = True
+        self.toSimulate = False
 
         # Initialize Pipeline Widget
         state.setdefault("active_ui", "environment")
@@ -105,37 +107,6 @@ class Engine:
 
         logger.setLevel(logging.WARNING)
         jupyter.show(self.server, **kwargs)
-
-    # Logger
-    def on_file_change(self, files, **kwargs):
-        logger.info(f">>> ENGINE(a): User STL file input changed")
-
-    def on_length_change(self, myLength, **kwargs):
-        logger.info(f">>> ENGINE(a): Length of boundary block changed")
-
-    def on_width_change(self, myWidth, **kwargs):
-        logger.info(f">>> ENGINE(a): Width of boundary block changed")
-
-    def on_height_change(self, myHeight, **kwargs):
-        logger.info(f">>> ENGINE(a): Height of boundary block changed")
-
-    def on_inlet_change(self, inlet, **kwargs):
-        logger.info(f">>> ENGINE(a): Inlet of environment changed")
-    
-    def on_outlet_change(self, outlet, **kwargs):
-        logger.info(f">>> ENGINE(a): Outlet of environment changed")
-
-    def on_windSpeed_change(self, myWindSpeed, **kwargs):
-        logger.info(f">>> ENGINE(a): Speed of natural airflow changed")
-
-    def on_windHeight_change(self, myWindHeight, **kwargs):
-        logger.info(f">>> ENGINE(a): Height of natural airflow changed")
-
-    def on_landscape_change(self, landscape, **kwargs):
-        logger.info(f">>> ENGINE(a): Landscape changed")
-
-    def on_simTime_change(self, mySimTime, **kwargs):
-        logger.info(f">>> ENGINE(a): Simulation Time changed")
 
     # Methods for Environment Setting
     class Patch:
@@ -222,6 +193,10 @@ class Engine:
             self.outlet = "(0 4 7 3)"
         elif outlet == self.Patch.right:
             self.outlet= "(1 2 6 5)"
+    
+    def update_setProgress(self, delta):
+        with self.state:
+            self.state.setProgress += delta
 
     def convert(self, **kwargs):
         conversion_path = os.path.join(self.USER_DIR, 'system', 'surfaceFeaturesDict')
@@ -318,16 +293,17 @@ class Engine:
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
 
-    def set(self):
+    def set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
                 self.convert()
-                #update_progress(10)
+                self.update_setProgress(5)
                 self.block()
-                #update_progress(20)
+                self.update_setProgress(15)
                 self.mesh()
-                #update_progress(70)
+                self.update_setProgress(75)
                 self.view_stl()
+                self.update_setProgress(5)
                 self.setSuccess = True
 
     def set_windSpeed(self, myWindSpeed, **kwargs):
@@ -636,7 +612,7 @@ class Engine:
                 #bottom=True,
                 color="teal",
                 height="20",
-                v_model=("progress", 0),
+                v_model=("setProgress", 0),
                 classes="pa-2"
             )
             vuetify.VDivider(classes="mt-5")

@@ -49,6 +49,8 @@ class Engine:
         state.change("myHeight")(self.set_height)
         state.change("inlet")(self.set_inlet)
         state.change("outlet")(self.set_outlet)
+        #state.change("setProgress")(self.update_setProgress)
+
         state.change("myWindSpeed")(self.set_windSpeed)
         state.change("myWindHeight")(self.set_windHeight)
         state.change("aeroRoughness")(self.set_aeroRoughness)
@@ -69,14 +71,15 @@ class Engine:
         self.inlet = ""
         self.outlet = ""
         self.toSet = False
-        self.setSuccess = True
+        self.setSuccess = False
+        #state.setProgress = 0
 
         state.windSpeed = ""
         state.windHeight = ""
         self.windDirection = ""
         self.aeroRoughness = ""
         state.simTime = ""
-        self.toSimulate = True
+        self.toSimulate = False
 
         # Initialize Pipeline Widget
         state.setdefault("active_ui", "environment")
@@ -222,6 +225,10 @@ class Engine:
             self.outlet = "(0 4 7 3)"
         elif outlet == self.Patch.right:
             self.outlet= "(1 2 6 5)"
+    
+    def update_setProgress(self, delta):
+        with self.state:
+            self.state.setProgress += delta
 
     def convert(self, **kwargs):
         conversion_path = os.path.join(self.USER_DIR, 'system', 'surfaceFeaturesDict')
@@ -235,6 +242,7 @@ class Engine:
 
         toEmesh = subprocess.Popen('surfaceFeatures', cwd=self.USER_DIR)
         toEmesh.wait()
+        self.update_setProgress(5)
     
     def block(self, **kwargs):
         # Modify blockMesh
@@ -281,6 +289,7 @@ class Engine:
         
         toBlock = subprocess.Popen("blockMesh", cwd=self.USER_DIR)
         toBlock.wait()
+        self.update_setProgress(15)
     
     def mesh(self, **kwargs):
         stl_name = os.path.splitext(self.FILENAME)[0]
@@ -304,6 +313,7 @@ class Engine:
         for cmd in commands:
             process = subprocess.Popen(cmd, cwd=self.USER_DIR)
             process.wait()
+            self.update_setProgress(75)
     
     def view_stl(self, **kwargs):
         toFoam = subprocess.Popen(['paraFoam', '-builtin', '-touch'], cwd=self.USER_DIR)
@@ -317,17 +327,19 @@ class Engine:
         simple.SetActiveSource(environment)
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
+        self.update_setProgress(5)
 
-    def set(self):
+    def set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
                 self.convert()
-                #update_progress(10)
+                #self.update_setProgress(5)
                 self.block()
-                #update_progress(20)
+                #self.update_setProgress(15)
                 self.mesh()
-                #update_progress(70)
+                #self.update_setProgress(75)
                 self.view_stl()
+                #self.update_setProgress(5)
                 self.setSuccess = True
 
     def set_windSpeed(self, myWindSpeed, **kwargs):
@@ -419,15 +431,15 @@ class Engine:
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
 
-        stl_reader = simple.STLReader(FileName=stl_path)
-        environment = simple.Show(stl_reader, self.view)
+        stl_reader = simple.STLReader(FileNames=[stl_path])
+        environment = simple.Show(stl_reader, self.view, 'GeometryRepresentation')
         environment.Opacity = 0.25
 
         foam_reader = simple.OpenFOAMReader(FileName=foam_path)
         foam_reader.MeshRegions = ['internalMesh']
         foam_reader.CellArrays = ['U']
         airflow = simple.Show(foam_reader, self.view, 'UnstructuredGridRepresentation')
-
+        
         simple.SetActiveSource(environment)
         simple.SetActiveSource(airflow)
         animationScene = simple.GetAnimationScene()
@@ -632,11 +644,11 @@ class Engine:
                     )
             vuetify.VDivider(classes="mt-3")
             vuetify.VProgressLinear(
-                absolute=True,
+                #absolute=True,
                 #bottom=True,
                 color="teal",
                 height="20",
-                v_model=("progress", 0),
+                v_model=("setProgress", 0),
                 classes="pa-2"
             )
             vuetify.VDivider(classes="mt-5")
