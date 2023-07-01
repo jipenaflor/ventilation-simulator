@@ -40,11 +40,9 @@ class Engine:
         state.resolution = 6
 
         # Bind instance methods to controller
-        ctrl.reset_resolution = self.reset_resolution
         ctrl.on_server_reload = self.ui
 
         # Bind instance methods to state change
-        state.change("resolution")(self.on_resolution_change)
         state.change("files")(self.read)
         state.change("myLength")(self.set_length)
         state.change("myWidth")(self.set_width)
@@ -54,6 +52,7 @@ class Engine:
         state.change("myWindSpeed")(self.set_windSpeed)
         state.change("myWindHeight")(self.set_windHeight)
         state.change("aeroRoughness")(self.set_aeroRoughness)
+        state.change("mySimTime")(self.set_simTime)
 
         # Create temporary directory for uer simulation
         self.user = tempfile.TemporaryDirectory(dir='./')
@@ -70,7 +69,7 @@ class Engine:
         self.inlet = ""
         self.outlet = ""
         self.toSet = False
-        self.setSuccess = False
+        self.setSuccess = True
 
         state.windSpeed = ""
         state.windHeight = ""
@@ -107,12 +106,36 @@ class Engine:
         logger.setLevel(logging.WARNING)
         jupyter.show(self.server, **kwargs)
 
+    # Logger
+    def on_file_change(self, files, **kwargs):
+        logger.info(f">>> ENGINE(a): User STL file input changed")
 
-    def reset_resolution(self):
-        self._server.state.resolution = 6
+    def on_length_change(self, myLength, **kwargs):
+        logger.info(f">>> ENGINE(a): Length of boundary block changed")
 
-    def on_resolution_change(self, resolution, **kwargs):
-        logger.info(f">>> ENGINE(a): Slider updating resolution to {resolution}")
+    def on_width_change(self, myWidth, **kwargs):
+        logger.info(f">>> ENGINE(a): Width of boundary block changed")
+
+    def on_height_change(self, myHeight, **kwargs):
+        logger.info(f">>> ENGINE(a): Height of boundary block changed")
+
+    def on_inlet_change(self, inlet, **kwargs):
+        logger.info(f">>> ENGINE(a): Inlet of environment changed")
+    
+    def on_outlet_change(self, outlet, **kwargs):
+        logger.info(f">>> ENGINE(a): Outlet of environment changed")
+
+    def on_windSpeed_change(self, myWindSpeed, **kwargs):
+        logger.info(f">>> ENGINE(a): Speed of natural airflow changed")
+
+    def on_windHeight_change(self, myWindHeight, **kwargs):
+        logger.info(f">>> ENGINE(a): Height of natural airflow changed")
+
+    def on_landscape_change(self, landscape, **kwargs):
+        logger.info(f">>> ENGINE(a): Landscape changed")
+
+    def on_simTime_change(self, mySimTime, **kwargs):
+        logger.info(f">>> ENGINE(a): Simulation Time changed")
 
     # Methods for Environment Setting
     class Patch:
@@ -310,20 +333,18 @@ class Engine:
     def set_windSpeed(self, myWindSpeed, **kwargs):
         isPositive = self.validate_number(myWindSpeed)
         if isPositive and self.setSuccess:
-            self.state.windSpeed = float(myWindSpeed)
+            self.state.windSpeed = myWindSpeed
             self.toSimulate = True
             return
-        #self.toSimulate = False
-        print(self.state.windSpeed)
+        self.toSimulate = False
     
     def set_windHeight(self, myWindHeight, **kwargs):
         isPositive = self.validate_number(myWindHeight)
         if isPositive and self.setSuccess:
-            self.state.windHeight = float(myWindHeight)
+            self.state.windHeight = myWindHeight
             self.toSimulate = True
             return
-        #self.toSimulate = False
-        print(self.state.windHeight)
+        self.toSimulate = False
 
     def set_aeroRoughness(self, aeroRoughness, **kwargs):
         if aeroRoughness == self.Landscape.open:
@@ -342,16 +363,14 @@ class Engine:
             self.aeroRoughness = "1.0"
         elif aeroRoughness == self.Landscape.varying:
             self.aeroRoughness = "2.0"
-        print(self.aeroRoughness)
     
     def set_simTime(self, mySimTime, **kwargs):
         isPositive = self.validate_number(mySimTime)
         if isPositive and self.setSuccess:
-            self.state.simTime = float(mySimTime)
+            self.state.simTime = mySimTime
             self.toSimulate = True
             return
-        #self.toSimulate = False
-        print(self.state.simTime)
+        self.toSimulate = False
 
     def simplefoam(self, **kwargs):
         # modify ABLConditions Dict
@@ -372,8 +391,8 @@ class Engine:
         with open(control_path, "r", encoding="utf-8") as fr:
             line = fr.readlines()
         
-        line[23] = "endTime         " + str(self.state.simTime) + ";\n"
-        line[29] = "writeInterval   " + str(self.state.simTime) + ";\n"
+        line[23] = "endTime         " + self.state.simTime + ";\n"
+        line[29] = "writeInterval   " + self.state.simTime + ";\n"
 
         with open(control_path, "w", encoding="utf-8") as fw:
             fw.writelines(line)
@@ -400,15 +419,15 @@ class Engine:
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
 
-        stl_reader = simple.STLReader(FileName=stl_path)
-        environment = simple.Show(stl_reader, self.view)
+        stl_reader = simple.STLReader(FileNames=[stl_path])
+        environment = simple.Show(stl_reader, self.view, 'GeometryRepresentation')
         environment.Opacity = 0.25
 
         foam_reader = simple.OpenFOAMReader(FileName=foam_path)
         foam_reader.MeshRegions = ['internalMesh']
         foam_reader.CellArrays = ['U']
         airflow = simple.Show(foam_reader, self.view, 'UnstructuredGridRepresentation')
-
+        
         simple.SetActiveSource(environment)
         simple.SetActiveSource(airflow)
         animationScene = simple.GetAnimationScene()
