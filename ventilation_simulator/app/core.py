@@ -7,8 +7,9 @@ import subprocess
 import shutil
 import tempfile
 import logging
+import asyncio
 
-from trame.app import get_server
+from trame.app import get_server, asynchronous
 from trame.widgets import vuetify, paraview
 from trame.ui.vuetify import SinglePageWithDrawerLayout
 from trame.widgets import vtk, vuetify, trame
@@ -48,7 +49,6 @@ class Engine:
         state.change("myHeight")(self.set_height)
         state.change("inlet")(self.set_inlet)
         state.change("outlet")(self.set_outlet)
-        #state.change("setProgress")(self.update_setProgress)
 
         state.change("myWindSpeed")(self.set_windSpeed)
         state.change("myWindHeight")(self.set_windHeight)
@@ -193,10 +193,6 @@ class Engine:
             self.outlet = "(0 4 7 3)"
         elif outlet == self.Patch.right:
             self.outlet= "(1 2 6 5)"
-    
-    def update_setProgress(self, delta):
-        with self.state:
-            self.state.setProgress += delta
 
     def convert(self, **kwargs):
         conversion_path = os.path.join(self.USER_DIR, 'system', 'surfaceFeaturesDict')
@@ -292,19 +288,34 @@ class Engine:
         simple.SetActiveSource(environment)
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
+    
+    def update_setProgress(self, delta):
+        with self.state:
+            self.state.setProgress += delta
 
-    def set(self, **kwargs):
+    @asynchronous.task
+    async def _async_set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
                 self.convert()
                 self.update_setProgress(5)
+                await asyncio.sleep(0.01)
                 self.block()
                 self.update_setProgress(15)
+                await asyncio.sleep(0.01)
                 self.mesh()
                 self.update_setProgress(75)
+                await asyncio.sleep(0.05)
                 self.view_stl()
                 self.update_setProgress(5)
+                await asyncio.sleep(0.05)
                 self.setSuccess = True
+                with self.state:
+                    self.state.sim_running = False
+    
+    def run_set(self):
+        self.state.sim_running = True
+        asynchronous.create_task(self._async_set())
 
     def set_windSpeed(self, myWindSpeed, **kwargs):
         isPositive = self.validate_number(myWindSpeed)
@@ -602,7 +613,8 @@ class Engine:
                 with vuetify.VCol(classes="text-center", cols="12"):
                     vuetify.VBtn(
                         "Set",
-                        click=self.set,
+                        click=self.run_set,
+                        disabled=("sim_running", False),
                         variant="tonal",
                         classes="pa-3"
                     )
