@@ -61,23 +61,28 @@ class Engine:
         self.USER_DIR = self.user.name
 
         # Initialize internal and state variables
+        
         self.FILENAME = ""
         self.USER_STL = ""
-
+        self.DEFAULT_VALUE = 5
+        '''
         state.length = ""
         state.width = ""
         state.height = ""
+        '''
         self.inlet = ""
         self.outlet = ""
+        
         self.toSet = False
         self.setSuccess = False
         #state.setProgress = 0
-
+        '''
         state.windSpeed = ""
         state.windHeight = ""
+        '''
         self.windDirection = ""
         self.aeroRoughness = ""
-        state.simTime = ""
+        #state.simTime = ""
         self.toSimulate = False
 
         # Initialize Pipeline Widget
@@ -295,27 +300,27 @@ class Engine:
 
     @asynchronous.task
     async def _async_set(self, **kwargs):
+        self.convert()
+        self.update_setProgress(5)
+        await asyncio.sleep(0.01)
+        self.block()
+        self.update_setProgress(15)
+        await asyncio.sleep(0.01)
+        self.mesh()
+        self.update_setProgress(75)
+        await asyncio.sleep(0.05)
+        self.view_stl()
+        self.update_setProgress(5)
+        await asyncio.sleep(0.05)
+        self.setSuccess = True
+        with self.state:
+            self.state.set_running = False
+    
+    def run_set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
-                self.convert()
-                self.update_setProgress(5)
-                await asyncio.sleep(0.01)
-                self.block()
-                self.update_setProgress(15)
-                await asyncio.sleep(0.01)
-                self.mesh()
-                self.update_setProgress(75)
-                await asyncio.sleep(0.05)
-                self.view_stl()
-                self.update_setProgress(5)
-                await asyncio.sleep(0.05)
-                self.setSuccess = True
-                with self.state:
-                    self.state.sim_running = False
-    
-    def run_set(self):
-        self.state.sim_running = True
-        asynchronous.create_task(self._async_set())
+                self.state.set_running = True
+                asynchronous.create_task(self._async_set())
 
     def set_windSpeed(self, myWindSpeed, **kwargs):
         isPositive = self.validate_number(myWindSpeed)
@@ -488,10 +493,26 @@ class Engine:
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
     
-    def simulate(self):
+    def update_simProgress(self, delta):
+        with self.state:
+            self.state.simProgress += delta
+
+    @asynchronous.task
+    async def _async_simulate(self, **kwargs):
+        self.simplefoam()
+        self.update_simProgress(80)
+        await asyncio.sleep(0.05)
+        self.view_foam()
+        self.update_simProgress(20)
+        await asyncio.sleep(0.05)
+        with self.state:
+            self.state.sim_running = False
+    
+    def run_sim(self, **kwargs):
         if self.toSimulate:
-            self.simplefoam()
-            self.view_foam()
+            self.state.sim_running = True
+            asynchronous.create_task(self._async_simulate())
+
 
     # Selection Change
     def actives_change(self, ids):
@@ -551,21 +572,21 @@ class Engine:
             )
             vuetify.VTextField(
                 label="Length",
-                v_model=("myLength", 5),
+                v_model=("myLength", self.DEFAULT_VALUE),
                 hint="Input a positive number",
                 suffix="meters",
                 classes="mx-2"
             )
             vuetify.VTextField(
                 label="Width",
-                v_model=("myWidth", 5),
+                v_model=("myWidth", self.DEFAULT_VALUE),
                 hint="Input a positive number",
                 suffix="meters",
                 classes="mx-2"
             )
             vuetify.VTextField(
                 label="Height",
-                v_model=("myHeight", 5),
+                v_model=("myHeight", self.DEFAULT_VALUE),
                 hint="Input a positive number",
                 suffix="meters",
                 classes="mx-2"
@@ -614,7 +635,7 @@ class Engine:
                     vuetify.VBtn(
                         "Set",
                         click=self.run_set,
-                        disabled=("sim_running", False),
+                        disabled=("set_running", False),
                         variant="tonal",
                         classes="pa-3"
                     )
@@ -640,7 +661,7 @@ class Engine:
                 with vuetify.VCol(cols="6"):
                     vuetify.VTextField(
                         label="Wind Speed",
-                        v_model=("myWindSpeed", 5),
+                        v_model=("myWindSpeed", str(self.DEFAULT_VALUE)),
                         hint="Input a positive number",
                         suffix="m/s",
                         classes="ms-2"
@@ -648,7 +669,7 @@ class Engine:
                 with vuetify.VCol(cols="6"):
                     vuetify.VTextField(
                         label="at Height",
-                        v_model=("myWindHeight", 5),
+                        v_model=("myWindHeight", str(self.DEFAULT_VALUE)),
                         hint="Input a positive number",
                         suffix="meters",
                         classes="me-2"
@@ -677,7 +698,7 @@ class Engine:
             )
             vuetify.VTextField(
                 label="Simulation Time",
-                v_model=("mySimTime", 5),
+                v_model=("mySimTime", str(self.DEFAULT_VALUE)),
                 hint="Input a positive number",
                 suffix="seconds",
                 classes="ma-2"
@@ -686,7 +707,8 @@ class Engine:
                 with vuetify.VCol(classes="text-center", cols="12"):
                     vuetify.VBtn(
                         "Simulate",
-                        click=self.simulate,
+                        click=self.run_sim,
+                        disabled=("sim_running", False),
                         variant="tonal",
                         classes="pa-3"
                     )
@@ -696,7 +718,7 @@ class Engine:
                 #bottom=True,
                 color="teal",
                 height="20",
-                v_model=("progress", 0),
+                v_model=("simProgress", 0),
                 classes="pa-2"
             )
             vuetify.VDivider(classes="mt-5")
