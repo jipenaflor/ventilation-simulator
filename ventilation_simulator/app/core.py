@@ -291,6 +291,7 @@ class Engine:
         environment = simple.Show(reader, self.view)
         environment.Opacity = 0.3
         simple.SetActiveSource(environment)
+        self.view.AxesGrid.Visibility = 1
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
     
@@ -536,11 +537,18 @@ class Engine:
             actives_change=(self.actives_change, "[$event]"),
         )
 
-    def ui_card(self, title, ui_name):
+    def ui_card(self, title, text, ui_name):
         with vuetify.VCard(v_show=f"active_ui == '{ui_name}'"):
             vuetify.VCardTitle(
                 title,
                 classes="grey lighten-1 py-1 grey--text text--darken-3",
+                style="user-select: none; cursor: pointer",
+                hide_details=True,
+                dense=True,
+            )
+            vuetify.VCardText(
+                text,
+                classes="grey lighten-1 pb-2 grey--text text--darken-3",
                 style="user-select: none; cursor: pointer",
                 hide_details=True,
                 dense=True,
@@ -551,7 +559,10 @@ class Engine:
     # Set UI for environment setting
 
     def environment_control_panel(self):
-        with self.ui_card(title="Set Environment", ui_name="environment"):
+        with self.ui_card(title="Set Environment", \
+                          text="Convert the uploaded STL file to a simulation-compatible \
+                            file and set the boundaries and patches of simulation.", \
+                            ui_name="environment"):
             vuetify.VCardSubtitle(
                 "Upload your STL File"
             )
@@ -568,7 +579,10 @@ class Engine:
             )  
             
             vuetify.VCardSubtitle(
-                "Set the boundaries and patches of simulation."
+                "Input the dimensions of the block that will limit the scope of simulation and \
+                    select also the patches from which the natural airflow will come in and out. \
+                    Note that the dimensions are measured from the center ground of the geometry \
+                        found in the uploaded STL file."
             )
             vuetify.VTextField(
                 label="Length",
@@ -656,7 +670,7 @@ class Engine:
             )
     
     def simulation_control_panel(self):
-        with self.ui_card(title="Simulate Airflow", ui_name="airflow"):
+        with self.ui_card(title="Simulate Airflow", text="Set the wind speed", ui_name="airflow"):
             with vuetify.VRow(classes="pt-1", dense=True):
                 with vuetify.VCol(cols="6"):
                     vuetify.VTextField(
