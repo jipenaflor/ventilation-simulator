@@ -317,9 +317,11 @@ class Engine:
         with self.state:
             self.state.set_running = False
     
-    def run_set(self, **kwargs):
+    async def run_set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
+                self.state.setProgress = 0
+                await asyncio.sleep(0.05)
                 self.state.set_running = True
                 asynchronous.create_task(self._async_set())
 
