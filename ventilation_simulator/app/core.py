@@ -84,6 +84,10 @@ class Engine:
         self.aeroRoughness = ""
         #state.simTime = ""
         self.toSimulate = False
+        
+        self.reader = ""
+        self.stl_reader = ""
+        self.foam_reader = ""
 
         # Initialize Pipeline Widget
         state.setdefault("active_ui", "environment")
@@ -143,7 +147,11 @@ class Engine:
         with  open(save_path, "wb") as fw:
             fw.write(self.USER_STL)
         fw.close()
-    
+
+        self.stl_reader = simple.STLReader(FileNames=[save_path])
+        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
+        self.view.AxesGrid.Visibility = 1
+
     def validate_number(self, myNumber):
         try:
             valid = float(myNumber)
@@ -178,17 +186,33 @@ class Engine:
     def set_inlet(self, inlet, **kwargs):
         if inlet == self.Patch.front:
             self.inlet = "(0 1 5 4)"
-            self.windDirection = "(0 1 0)"
+            if self.outlet == "(0 4 7 3)":      #front-left
+                self.windDirection = "(-1 -1 0)"
+            elif self.outlet == "(0 4 7 3)":    #front-right
+                self.windDirection = "(1 -1 0)"
+            self.windDirection = "(0 -1 0)"     #front-back
         elif inlet == self.Patch.back:
             self.inlet = "(3 7 6 2)"
-            self.windDirection = "(0 1 0)"
+            if self.outlet == "(0 4 7 3)":      #back-left
+                self.windDirection = "(-1 1 0)"
+            elif self.outlet == "(0 4 7 3)":    #back-right
+                self.windDirection = "(1 1 0)"
+            self.windDirection = "(0 1 0)"      #back-front
         elif inlet == self.Patch.left:
             self.inlet = "(0 4 7 3)"
-            self.windDirection = "(1 0 0)"
+            if self.outlet == "(0 1 5 4)":      #left-front
+                self.windDirection = "(-1 -1 0)"
+            elif self.outlet == "(3 7 6 2)":    #left-back
+                self.windDirection = "(-1 1 0)"
+            self.windDirection = "(-1 0 0)"     #left-right
         elif inlet == self.Patch.right:
             self.inlet = "(1 2 6 5)"
-            self.windDirection = "(1 0 0)"
-
+            if self.outlet == "(0 1 5 4)":      #right-front
+                self.windDirection = "(1 -1 0)"
+            elif self.outlet == "(3 7 6 2)":    #right-back
+                self.windDirection = "(1 1 0)"
+            self.windDirection = "(1 0 0)"      #right-left
+            
     def set_outlet(self, outlet, **kwargs):
         if outlet == self.Patch.front:
             self.outlet = "(0 1 5 4)"
@@ -211,6 +235,7 @@ class Engine:
 
         toEmesh = subprocess.Popen('surfaceFeatures', cwd=self.USER_DIR)
         toEmesh.wait()
+        self.update_setProgress(2)
     
     def block(self, **kwargs):
         # Modify blockMesh
@@ -257,6 +282,7 @@ class Engine:
         
         toBlock = subprocess.Popen("blockMesh", cwd=self.USER_DIR)
         toBlock.wait()
+        self.update_setProgress(15)
     
     def mesh(self, **kwargs):
         stl_name = os.path.splitext(self.FILENAME)[0]
@@ -277,9 +303,27 @@ class Engine:
 
         commands = [['decomposePar', '-force'], ['mpirun', '-np', '12', 'snappyHexMesh', '-parallel', '-overwrite'], ['reconstructParMesh', '-constant']]
         
+        mesh_stages = ["Processor 11: field transfer", "Determining initial surface intersections", \
+                    "Adding patches for surface regions", "Refinement phase", \
+                    "Feature refinement iteration 4", "Surface refinement iteration 1", \
+                    "Splitting mesh at surface intersections", "Introducing baffles to block off problem cells", \
+                    "Remove unreachable sections of mesh", "Handling cells with snap problems", \
+                    "Morph iteration 9", "Shrinking and layer addition phase", \
+                    "Finalising parallel run"]
+        stage = 0
         for cmd in commands:
             process = subprocess.Popen(cmd, cwd=self.USER_DIR)
+            '''
+            for line in process.stdout:
+                if mesh_stages[stage] in str(line):
+                    self.update_setProgress(6)
+                    stage +=1
+                    if stage == len(mesh_stages):
+                        break
+                    await asyncio.sleep(0.01)
+            '''
             process.wait()
+        self.update_setProgress(78)
     
     def view_stl(self, **kwargs):
         toFoam = subprocess.Popen(['paraFoam', '-builtin', '-touch'], cwd=self.USER_DIR)
@@ -287,13 +331,15 @@ class Engine:
 
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
-        reader = simple.OpenFOAMReader(FileName=foam_path)
-        environment = simple.Show(reader, self.view)
+        self.reader = simple.OpenFOAMReader(FileName=foam_path)
+        environment = simple.Show(self.reader, self.view)
         environment.Opacity = 0.3
         simple.SetActiveSource(environment)
         self.view.AxesGrid.Visibility = 1
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
+
+        self.update_setProgress(5)
     
     def update_setProgress(self, delta):
         with self.state:
@@ -302,17 +348,13 @@ class Engine:
     @asynchronous.task
     async def _async_set(self, **kwargs):
         self.convert()
-        self.update_setProgress(5)
         await asyncio.sleep(0.01)
         self.block()
-        self.update_setProgress(15)
         await asyncio.sleep(0.01)
         self.mesh()
-        self.update_setProgress(75)
         await asyncio.sleep(0.05)
         self.view_stl()
-        self.update_setProgress(5)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.01)
         self.setSuccess = True
         with self.state:
             self.state.set_running = False
@@ -320,8 +362,9 @@ class Engine:
     async def run_set(self, **kwargs):
         if self.inlet != self.outlet:
             if self.toSet:
+                simple.Hide(self.stl_reader)
                 self.state.setProgress = 0
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)
                 self.state.set_running = True
                 asynchronous.create_task(self._async_set())
 
@@ -369,12 +412,16 @@ class Engine:
 
     def simplefoam(self, **kwargs):
         # modify ABLConditions Dict
+        v = str(self.state.windSpeed)
+        h = str(self.state.windHeight)
+        t = str(self.state.simTime)
+
         ABL_path = os.path.join(self.USER_DIR, '0', 'include', 'ABLConditions')
         with open(ABL_path, "r", encoding="utf-8") as fr:
             line = fr.readlines()
         
-        line[8] = "Uref                 " + self.state.windSpeed + ";\n"
-        line[9] = "Zref                 " + self.state.windHeight + ";\n"
+        line[8] = "Uref                 " + v + ";\n"
+        line[9] = "Zref                 " + h + ";\n"
         line[11] = "flowDir              " + self.windDirection + ";\n"
         line[12] = "z0                   uniform " + self.aeroRoughness + ";\n"
 
@@ -386,8 +433,8 @@ class Engine:
         with open(control_path, "r", encoding="utf-8") as fr:
             line = fr.readlines()
         
-        line[23] = "endTime         " + self.state.simTime + ";\n"
-        line[29] = "writeInterval   " + self.state.simTime + ";\n"
+        line[23] = "endTime         " + t + ";\n"
+        line[29] = "writeInterval   " + t + ";\n"
 
         with open(control_path, "w", encoding="utf-8") as fw:
             fw.writelines(line)
@@ -408,20 +455,21 @@ class Engine:
         for cmd in commands:
             process = subprocess.Popen(cmd, cwd=self.USER_DIR)
             process.wait()
+        self.update_simProgress(80)
     
     def view_foam(self, **kwargs):
         stl_path = os.path.join(self.USER_DIR, 'constant', 'triSurface', self.FILENAME)
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
 
-        stl_reader = simple.STLReader(FileNames=[stl_path])
-        environment = simple.Show(stl_reader, self.view, 'GeometryRepresentation')
+        self.stl_reader = simple.STLReader(FileNames=[stl_path])
+        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
         environment.Opacity = 0.25
 
-        foam_reader = simple.OpenFOAMReader(FileName=foam_path)
-        foam_reader.MeshRegions = ['internalMesh']
-        foam_reader.CellArrays = ['U']
-        airflow = simple.Show(foam_reader, self.view, 'UnstructuredGridRepresentation')
+        self.foam_reader = simple.OpenFOAMReader(FileName=foam_path)
+        self.foam_reader.MeshRegions = ['internalMesh']
+        self.foam_reader.CellArrays = ['U']
+        airflow = simple.Show(self.foam_reader, self.view, 'UnstructuredGridRepresentation')
         
         simple.SetActiveSource(environment)
         simple.SetActiveSource(airflow)
@@ -449,7 +497,7 @@ class Engine:
         uPWF.ScalarRangeInitialized = 1
 
         # Create slice
-        slice = simple.Slice(Input=foam_reader)
+        slice = simple.Slice(Input=self.foam_reader)
         slice.SliceType = 'Plane'
         slice.HyperTreeGridSlicer = 'Plane'
         slice.SliceOffsetValues = [0.0]
@@ -483,7 +531,7 @@ class Engine:
         airflow_slice.ScaleTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
         airflow_slice.OpacityTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
 
-        simple.Hide(foam_reader)
+        simple.Hide(self.foam_reader)
         
         uLUT.ApplyPreset('Turbo', True)
         animationScene.AnimationTime = float(self.state.simTime)
@@ -495,6 +543,8 @@ class Engine:
         self.view.MakeRenderWindowInteractor(True)
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
+
+        self.update_simProgress(20)
     
     def update_simProgress(self, delta):
         with self.state:
@@ -503,18 +553,18 @@ class Engine:
     @asynchronous.task
     async def _async_simulate(self, **kwargs):
         self.simplefoam()
-        self.update_simProgress(80)
         await asyncio.sleep(0.05)
         self.view_foam()
-        self.update_simProgress(20)
         await asyncio.sleep(0.05)
-        with self.state:
-            self.state.sim_running = False
+        #with self.state:
+        #    self.state.sim_running = False
     
     async def run_sim(self, **kwargs):
         if self.toSimulate:
+            simple.Hide(self.reader)
             self.state.simProgress = 0
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
+            self.state.set_running = True
             self.state.sim_running = True
             asynchronous.create_task(self._async_simulate())
 
@@ -583,7 +633,7 @@ class Engine:
             )  
             
             vuetify.VCardSubtitle(
-                "Input the dimensions of the block that will limit the scope of simulation and \
+                "Input the dimensions of the block that delimits the scope of simulation and \
                     select also the patches from which the natural airflow will come in and out. \
                     Note that the dimensions are measured from the center ground of the geometry \
                         found in the uploaded STL file."
@@ -674,12 +724,14 @@ class Engine:
             )
     
     def simulation_control_panel(self):
-        with self.ui_card(title="Simulate Airflow", text="Set the wind speed", ui_name="airflow"):
+        with self.ui_card(title="Simulate Airflow", \
+                          text="Set the parameters for simulation of natural airflow", \
+                            ui_name="airflow"):
             with vuetify.VRow(classes="pt-1", dense=True):
                 with vuetify.VCol(cols="6"):
                     vuetify.VTextField(
                         label="Wind Speed",
-                        v_model=("myWindSpeed", str(self.DEFAULT_VALUE)),
+                        v_model=("myWindSpeed", self.DEFAULT_VALUE),
                         hint="Input a positive number",
                         suffix="m/s",
                         classes="ms-2"
@@ -687,7 +739,7 @@ class Engine:
                 with vuetify.VCol(cols="6"):
                     vuetify.VTextField(
                         label="at Height",
-                        v_model=("myWindHeight", str(self.DEFAULT_VALUE)),
+                        v_model=("myWindHeight", self.DEFAULT_VALUE),
                         hint="Input a positive number",
                         suffix="meters",
                         classes="me-2"
@@ -716,7 +768,7 @@ class Engine:
             )
             vuetify.VTextField(
                 label="Simulation Time",
-                v_model=("mySimTime", str(self.DEFAULT_VALUE)),
+                v_model=("mySimTime", self.DEFAULT_VALUE),
                 hint="Input a positive number",
                 suffix="seconds",
                 classes="ma-2"
