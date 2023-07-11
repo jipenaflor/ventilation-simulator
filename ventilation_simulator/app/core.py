@@ -54,6 +54,7 @@ class Engine:
         state.change("myWindHeight")(self.set_windHeight)
         state.change("aeroRoughness")(self.set_aeroRoughness)
         state.change("mySimTime")(self.set_simTime)
+        #state.change("slicePos")(self.set_slicePos)
 
         # Create temporary directory for uer simulation
         self.user = tempfile.TemporaryDirectory(dir='./')
@@ -544,7 +545,7 @@ class Engine:
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
 
-        self.update_simProgress(20)
+        self.update_simProgress(15)
     
     def update_simProgress(self, delta):
         with self.state:
@@ -556,8 +557,9 @@ class Engine:
         await asyncio.sleep(0.05)
         self.view_foam()
         await asyncio.sleep(0.05)
-        #with self.state:
-        #    self.state.sim_running = False
+        with self.state:
+            self.state.postProcess = False
+            #self.state.sim_running = False
     
     async def run_sim(self, **kwargs):
         if self.toSimulate:
@@ -566,8 +568,103 @@ class Engine:
             await asyncio.sleep(0.01)
             self.state.set_running = True
             self.state.sim_running = True
+            self.update_simProgress(5)
+            await asyncio.sleep(0.01)
             asynchronous.create_task(self._async_simulate())
 
+    def update_slicePos(self, **kwargs):
+        stl_path = os.path.join(self.USER_DIR, 'constant', 'triSurface', self.FILENAME)
+        foam_file = self.USER_DIR + ".foam"
+        foam_path = os.path.join(self.USER_DIR, foam_file)
+
+        self.stl_reader = simple.STLReader(FileNames=[stl_path])
+        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
+        environment.Opacity = 0.25
+
+        self.foam_reader = simple.OpenFOAMReader(FileName=foam_path)
+        self.foam_reader.MeshRegions = ['internalMesh']
+        self.foam_reader.CellArrays = ['U']
+        airflow = simple.Show(self.foam_reader, self.view, 'UnstructuredGridRepresentation')
+        
+        simple.SetActiveSource(environment)
+        simple.SetActiveSource(airflow)
+        animationScene = simple.GetAnimationScene()
+        animationScene.UpdateAnimationUsingDataTimeSteps()
+
+        airflow.ScaleTransferFunction.Points = [-4.672417163848877, 0.0, 0.5, 0.0, 4.776854038238525, 1.0, 0.5, 0.0]
+        airflow.OpacityTransferFunction.Points = [-4.672417163848877, 0.0, 0.5, 0.0, 4.776854038238525, 1.0, 0.5, 0.0]
+        simple.ColorBy(airflow, ('POINTS', 'U', 'Magnitude'))
+        airflow.RescaleTransferFunctionToDataRange(True, False)
+        airflow.SetScalarBarVisibility(self.view, True)
+        self.view.Update()
+
+        uTF2D = simple.GetTransferFunction2D('U')
+
+        # get color transfer function/color map for 'U'
+        uLUT = simple.GetColorTransferFunction('U')
+        uLUT.TransferFunction2D = uTF2D
+        uLUT.RGBPoints = [0.0, 0.231373, 0.298039, 0.752941, 3.1018124603982984, 0.865003, 0.865003, 0.865003, 6.203624920796597, 0.705882, 0.0156863, 0.14902]
+        uLUT.ScalarRangeInitialized = 1.0
+
+        # get opacity transfer function/opacity map for 'U'
+        uPWF = simple.GetOpacityTransferFunction('U')
+        uPWF.Points = [0.0, 0.0, 0.5, 0.0, 6.203624920796597, 1.0, 0.5, 0.0]
+        uPWF.ScalarRangeInitialized = 1
+
+        # Create slice
+        slice = simple.Slice(Input=self.foam_reader)
+        slice.SliceType = 'Plane'
+        slice.HyperTreeGridSlicer = 'Plane'
+        slice.SliceOffsetValues = [0.0]
+        slice.SliceType.Origin = [0.0, 0.0, float(self.state.slicePos)]
+        slice.SliceType.Normal = [0.0, 0.0, 1.0]
+
+        airflow_slice = simple.Show(slice, self.view, 'GeometryRepresentation')
+        airflow_slice.Representation = 'Surface'
+        airflow_slice.ColorArrayName = ['POINTS', 'U']
+        airflow_slice.LookupTable = uLUT
+        airflow_slice.SelectTCoordArray = 'None'
+        airflow_slice.SelectNormalArray = 'None'
+        airflow_slice.SelectTangentArray = 'None'
+        airflow_slice.OSPRayScaleArray = 'U'
+        airflow_slice.OSPRayScaleFunction = 'PiecewiseFunction'
+        airflow_slice.SelectOrientationVectors = 'U'
+        airflow_slice.ScaleFactor = 1.4000000000000001
+        airflow_slice.SelectScaleArray = 'None'
+        airflow_slice.GlyphType = 'Arrow'
+        airflow_slice.GlyphTableIndexArray = 'None'
+        airflow_slice.GaussianRadius = 0.07
+        airflow_slice.SetScaleArray = ['POINTS', 'U']
+        airflow_slice.ScaleTransferFunction = 'PiecewiseFunction'
+        airflow_slice.OpacityArray = ['POINTS', 'U']
+        airflow_slice.OpacityTransferFunction = 'PiecewiseFunction'
+        airflow_slice.DataAxesGrid = 'GridAxesRepresentation'
+        airflow_slice.PolarAxes = 'PolarAxesRepresentation'
+        airflow_slice.SelectInputVectors = ['POINTS', 'U']
+        airflow_slice.WriteLog = ''
+
+        airflow_slice.ScaleTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
+        airflow_slice.OpacityTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
+
+        simple.Hide(self.foam_reader)
+        
+        uLUT.ApplyPreset('Turbo', True)
+        animationScene.AnimationTime = float(self.state.simTime)
+
+        airflow_slice.SetScalarBarVisibility(self.view, True)
+        airflow_slice.RescaleTransferFunctionToDataRange(False, True)
+        self.view.Update()
+
+        self.view.MakeRenderWindowInteractor(True)
+        self.ctrl.view_reset_camera()
+        self.ctrl.view_update()
+
+    async def _async_view(self):
+        self.update_slicePos()
+
+    def set_slicePos(self, **kwargs):
+        asynchronous.create_task(self._async_view())
+        
 
     # Selection Change
     def actives_change(self, ids):
@@ -773,6 +870,9 @@ class Engine:
                 suffix="seconds",
                 classes="ma-2"
                 )
+            vuetify.VCardText(
+                "You can only simulate once. Do you wish to continue?"
+                )
             with vuetify.VRow(classes="pt-1", align="center", dense=True):
                 with vuetify.VCol(classes="text-center", cols="12"):
                     vuetify.VBtn(
@@ -782,6 +882,14 @@ class Engine:
                         variant="tonal",
                         classes="pa-3"
                     )
+            vuetify.VTextField(
+                label="Filter Slice Position",
+                v_model=("slicePos", self.DEFAULT_VALUE),
+                disabled=("postProcess", True),
+                hint="Input a positive number",
+                suffix="meters",
+                classes="ma-2"
+                )
             vuetify.VDivider(classes="mt-3")
             vuetify.VProgressLinear(
                 absolute=True,
