@@ -22,10 +22,6 @@ internalField   uniform $flowVelocity;
 
 boundaryField
 {
-    classroom
-    {
-        type            noSlip;
-    }
     
     outlet
     {
@@ -55,7 +51,3 @@ boundaryField
         type            slip;
     }
 
-}
-
-
-// ************************************************************************* //

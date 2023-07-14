@@ -28,11 +28,6 @@ addLayers       true;
 // - to 'snap' the mesh boundary to the surface
 geometry
 {
-    classroom
-    {
-        type triSurfaceMesh;
-        file "classroom.stl";
-    }
 };
 
 
@@ -84,10 +79,6 @@ castellatedMeshControls
     // This is a featureEdgeMesh, read from constant/geometry for now.
     features
     (
-        {
-            file "classroom.eMesh";
-            level 2;
-        }
     );
 
 
@@ -103,28 +94,6 @@ castellatedMeshControls
 
     refinementSurfaces
     {
-        classroom
-        {
-            // Surface-wise min and max refinement level
-            level (2 2);
-
-            // Optional region-wise level specification
-/*
-*/
-            //- Optional angle to detect small-large cell situation
-            //  perpendicular to the surface. Is the angle of face w.r.t.
-            //  the local surface normal. Use on flat(ish) surfaces only.
-            //  Otherwise leave out or set to negative number.
-            // perpendicularAngle 10;
-
-
-            //- Optional faceZone and (for closed surface) cellZone with
-            //  how to select the cells that are in the cellZone
-            //  (inside / outside / specified insidePoint)
-            // faceZone sphere;
-            // cellZone sphere;
-            // mode        inside;  // outside/insidePoint
-        }
     }
 
     resolveFeatureAngle 30;
@@ -145,11 +114,6 @@ castellatedMeshControls
 
     refinementRegions
     {
-        classroom.stl
-        {
-            mode distance;
-            levels ((0.001 4) (0.003 3) (0.01 2));
-        }
     }
 
 
@@ -220,8 +184,6 @@ addLayersControls
     // Per final patch (so not geometry!) the layer information
     layers
     {
-	classroom
-		{nSurfaceLayers 3;}
     }
 
     // Expansion factor for layer mesh

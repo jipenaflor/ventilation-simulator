@@ -22,10 +22,6 @@ internalField   uniform $pressure;
 
 boundaryField
 {
-    classroom
-    {
-        type            zeroGradient;
-    }
     
     inlet
     {
@@ -53,6 +49,3 @@ boundaryField
         type            slip;
     }
 
-}
-
-// ************************************************************************* //

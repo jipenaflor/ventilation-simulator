@@ -54,7 +54,7 @@ class Engine:
         state.change("myWindHeight")(self.set_windHeight)
         state.change("aeroRoughness")(self.set_aeroRoughness)
         state.change("mySimTime")(self.set_simTime)
-        #state.change("slicePos")(self.set_slicePos)
+        state.change("slicePos")(self.set_slicePos)
 
         # Create temporary directory for uer simulation
         self.user = tempfile.TemporaryDirectory(dir='./')
@@ -63,33 +63,29 @@ class Engine:
 
         # Initialize internal and state variables
         
-        self.FILENAME = ""
-        self.USER_STL = ""
+        self.FILENAMES = []
         self.DEFAULT_VALUE = 5
-        '''
-        state.length = ""
-        state.width = ""
-        state.height = ""
-        '''
+
+        self.uploaded = False
+        self.stl_readers = dict()
+        self.length = 5
+        self.width = 5
+        self.height = 5
         self.inlet = ""
         self.outlet = ""
-        
         self.toSet = False
         self.setSuccess = False
-        #state.setProgress = 0
-        '''
-        state.windSpeed = ""
-        state.windHeight = ""
-        '''
+
+        self.windSpeed = 5
+        self.windHeight = 5
         self.windDirection = ""
         self.aeroRoughness = ""
-        #state.simTime = ""
+        self.simTime = 5
         self.toSimulate = False
-        
-        self.reader = ""
-        self.stl_reader = ""
-        self.foam_reader = ""
 
+        self.changeFile = False
+        self.changeSim = False
+        
         # Initialize Pipeline Widget
         state.setdefault("active_ui", "environment")
 
@@ -137,21 +133,48 @@ class Engine:
 
     def read(self, files, **kwargs):
         if files is None or len(files) == 0:
+            if self.uploaded:
+                for reader in self.stl_readers:
+                    simple.Delete(self.stl_readers[reader])
+            if self.changeFile:
+                simple.Delete(self.foam_reader)
+            self.ctrl.view_update()
+            self.stl_readers.clear()
+            self.toSet = False
+            self.state.set_running = True
             return
+        
+        save_path = os.path.join(self.USER_DIR, 'constant', 'triSurface')
+        input_list = []
 
         for file in files:
-            self.FILENAME = file.get("name")
-            self.USER_STL = file.get("content")
+            filename = file.get("name")
+            input_list.append(filename)
+            bytes = file.get("content")
+            write_path = os.path.join(save_path, filename)
+            with open(write_path, "wb") as fw:
+                fw.write(bytes)
+            fw.close()
         
-        save_path = os.path.join(self.USER_DIR, 'constant', 'triSurface', self.FILENAME)
-        
-        with  open(save_path, "wb") as fw:
-            fw.write(self.USER_STL)
-        fw.close()
+        # remove files in the save_path that are not listed in the upload form
+        file_diff = set(os.listdir(save_path)) - set(input_list)
+        for file_ in file_diff:
+            os.remove(os.path.join(save_path, file_))
 
-        self.stl_reader = simple.STLReader(FileNames=[save_path])
-        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
+        # assign readers to each stl in save_path
+        self.FILENAMES = os.listdir(save_path)
+        for i in self.FILENAMES:
+            self.stl_readers["{0}".format(i.split('.')[0])] = simple.STLReader(FileNames=[os.path.join(save_path, i)])
+        
+        for reader in self.stl_readers:
+            environment = simple.Show(self.stl_readers[reader], self.view, 'GeometryRepresentation')
+            environment.Opacity = 0.4
         self.view.AxesGrid.Visibility = 1
+        self.uploaded = True
+        self.ctrl.view_update()
+
+        self.state.set_running = False
+        self.toSet = True
 
     def validate_number(self, myNumber):
         try:
@@ -163,27 +186,33 @@ class Engine:
     def set_length(self, myLength, **kwargs):
         isPositive = self.validate_number(myLength)
         if isPositive:
-            self.state.length = float(myLength)
-            self.toSet = True
+            self.length = float(myLength)
+            self.state.set_running = False
             return
-        self.toSet = False
+        self.state.set_running = True
     
     def set_width(self, myWidth, **kwargs):
         isPositive = self.validate_number(myWidth)
         if isPositive:
-            self.state.width = float(myWidth)
-            self.toSet = True
+            self.width = float(myWidth)
+            self.state.set_running = False
             return
-        self.toSet = False
+        self.state.set_running = True
     
     def set_height(self, myHeight, **kwargs):
         isPositive = self.validate_number(myHeight)
         if isPositive:
-            self.state.height = float(myHeight)
-            self.toSet = True
+            self.height = float(myHeight)
+            self.state.set_running = False
             return
-        self.toSet = False
+        self.state.set_running = True
     
+    def validate_patch(self):
+        if self.inlet == self.outlet:
+            self.state.set_running = True
+            return
+        self.state.set_running = False
+
     def set_inlet(self, inlet, **kwargs):
         if inlet == self.Patch.front:
             self.inlet = "(0 1 5 4)"
@@ -213,7 +242,8 @@ class Engine:
             elif self.outlet == "(3 7 6 2)":    #right-back
                 self.windDirection = "(1 1 0)"
             self.windDirection = "(1 0 0)"      #right-left
-            
+        self.validate_patch()
+
     def set_outlet(self, outlet, **kwargs):
         if outlet == self.Patch.front:
             self.outlet = "(0 1 5 4)"
@@ -223,13 +253,32 @@ class Engine:
             self.outlet = "(0 4 7 3)"
         elif outlet == self.Patch.right:
             self.outlet= "(1 2 6 5)"
+        self.validate_patch()
 
+    def removeHistory(self):
+        if os.path.exists(os.path.join(self.USER_DIR, '{0}'.format(self.simTime))):
+            shutil.rmtree(os.path.join(self.USER_DIR, '{0}'.format(self.simTime)))
+        
+        processors = ['processor{0}'.format(i) for i in range(12)]
+
+        if all([os.path.exists(proc) for proc in processors]):
+            for proc in processors:
+                if os.path.exists(os.path.join(self.USER_DIR, proc, '{0}'.format(self.simTime))):
+                    shutil.rmtree(os.path.join(self.USER_DIR, proc, '{0}'.format(self.simTime)))
+            
     def convert(self, **kwargs):
+        conversion_template = os.path.join('simulation', 'system', 'surfaceFeaturesDict')
         conversion_path = os.path.join(self.USER_DIR, 'system', 'surfaceFeaturesDict')
-        with open(conversion_path, "r", encoding="utf-8") as fr:
+        with open(conversion_template, "r", encoding="utf-8") as fr:
             line = fr.readlines()
 
-        line[15] = "surfaces (\"" + str(self.FILENAME) + "\");\n"
+        line_ = line[16:]
+        del line[16:]
+
+        for file in self.FILENAMES:
+            line.append("\"{0}\"\n".format(file))
+        
+        line += line_
 
         with open(conversion_path, "w", encoding="utf-8") as fw:
             fw.writelines(line)
@@ -240,15 +289,16 @@ class Engine:
     
     def block(self, **kwargs):
         # Modify blockMesh
-        x = self.state.length
-        y = self.state.width
-        z = self.state.height
+        x = self.length
+        y = self.width
+        z = self.height
         vertices = [(-x, -y, 0), (x, -y, 0), (x, y, 0), (-x, y, 0), \
                     (-x, -y, z), (x, -y, z), (x, y, z), (-x, y, z)]
 
+        block_template = os.path.join('simulation', 'system', 'blockMeshDict')
         block_path = os.path.join(self.USER_DIR, 'system', 'blockMeshDict')
 
-        with open(block_path, "r", encoding="utf-8") as fr:
+        with open(block_template, "r", encoding="utf-8") as fr:
             line = fr.readlines()
 
         i = 19
@@ -271,71 +321,153 @@ class Engine:
             fw.writelines(line)
         
         # Modify Coefficients
-        stl_name = os.path.splitext(self.FILENAME)[0]
-        coeff = ["epsilon", "k", "nut", "p", "U"]
-        for f in coeff:
-            coeff_path = os.path.join(self.USER_DIR, '0', f)
-            with open(coeff_path, "r", encoding="utf-8") as fr:
+        coeffs = ["epsilon", "k", "nut", "p", "U"]
+        for coeff in coeffs:
+            coeff_template = os.path.join('simulation', '0', coeff)
+            with open(coeff_template, "r", encoding="utf-8") as fr:
                 line = fr.readlines()
-            line[24] = "    " + stl_name + "\n"
-            with open(coeff_path, "w", encoding="utf-8") as fw:
-                fw.writelines(line)  
+            for file in self.FILENAMES:
+                content = self.coeffContent(coeff, file)
+                coeff_path = os.path.join(self.USER_DIR, '0', coeff)
         
+                for i in content:
+                    line.append(i)
+
+                with open(coeff_path, "w", encoding="utf-8") as fw:
+                    if file == self.FILENAMES[-1]:
+                        line.append("}\n")
+                    fw.writelines(line)
+
+
         toBlock = subprocess.Popen("blockMesh", cwd=self.USER_DIR)
         toBlock.wait()
         self.update_setProgress(15)
+
+    def coeffContent(self, coeff, file):
+        epsilon = ["    {0}\n".format(file.split('.')[0]), \
+                "    {\n", "        type            epsilonWallFunction;\n", \
+                "        Cmu             0.09;\n", "        kappa           0.4;\n", \
+                "        E               9.8;\n", "        value           $internalField;\n", \
+                "    }\n", "\n"]
+        
+        k = ["    {0}\n".format(file.split('.')[0]), \
+            "    {\n", "        type            kqRWallFunction;\n", \
+            "        value           uniform 0.0;\n", \
+            "    }\n", "\n"]
+        
+        nut = ["    {0}\n".format(file.split('.')[0]), \
+            "    {\n", "        type            nutkAtmRoughWallFunction;\n", \
+            "        z0              $z0;\n", "        value           uniform 0.0;\n", \
+            "    }\n", "\n"]
+
+        p = ["    {0}\n".format(file.split('.')[0]), \
+            "    {\n", "        type            zeroGradient;\n", \
+            "    }\n", "\n"]
+        
+        U = ["    {0}\n".format(file.split('.')[0]), \
+            "    {\n", "        type            noSlip;\n", \
+            "    }\n", "\n"]
+        
+
+        if coeff == "epsilon":
+            return epsilon
+        elif coeff == "k":
+            return k
+        elif coeff == "nut":
+            return nut
+        elif coeff == "p":
+            return p
+        elif coeff == "U":
+            return U
     
     def mesh(self, **kwargs):
-        stl_name = os.path.splitext(self.FILENAME)[0]
+        mesh_template = os.path.join('simulation', 'system', 'snappyHexMeshDict')
         mesh_path = os.path.join(self.USER_DIR, 'system', 'snappyHexMeshDict')
 
-        with open(mesh_path, "r", encoding="utf-8") as fr:
+        with open(mesh_template, "r", encoding="utf-8") as fr:
             line = fr.readlines()
+        
+        a = line[30:81]
+        b = line[81:96]
+        c = line[96:]
+        del line[30:]
+        toModify = ["geometry", "features", "surfaces"]
 
-        line[30] = "    " + stl_name + "\n"
-        line[33] = "        file \"" + self.FILENAME + "\";\n"
-        line[87] = "            file \"" + stl_name + ".eMesh\";\n"
-        line[105] = "        " + stl_name + "\n"
-        line[147] = "        " + self.FILENAME + "\n"
-        line[222] = "	" + stl_name + "\n"
-
+        for part in toModify:
+            for file in self.FILENAMES:
+                content = self.snappyContent(file, part)
+                line += content
+            if part == toModify[0]:
+                line += a
+            elif part == toModify[1]:
+                line += b
+            else:
+                line += c
+        
         with open(mesh_path, "w", encoding="utf-8") as fw:
+            fw.writelines(line)
+        
+        # modify decomposeParDict
+        decompose_path = os.path.join(self.USER_DIR, 'system', 'decomposeParDict.orig')
+        with open(decompose_path, "r", encoding="utf-8") as fr:
+            line = fr.readlines()
+        
+        line[18] = "method          hierarchical;\n"
+
+        with open(decompose_path, "w", encoding="utf-8") as fw:
             fw.writelines(line)
 
         commands = [['decomposePar', '-force'], ['mpirun', '-np', '12', 'snappyHexMesh', '-parallel', '-overwrite'], ['reconstructParMesh', '-constant']]
         
-        mesh_stages = ["Processor 11: field transfer", "Determining initial surface intersections", \
-                    "Adding patches for surface regions", "Refinement phase", \
-                    "Feature refinement iteration 4", "Surface refinement iteration 1", \
-                    "Splitting mesh at surface intersections", "Introducing baffles to block off problem cells", \
-                    "Remove unreachable sections of mesh", "Handling cells with snap problems", \
-                    "Morph iteration 9", "Shrinking and layer addition phase", \
-                    "Finalising parallel run"]
-        stage = 0
         for cmd in commands:
             process = subprocess.Popen(cmd, cwd=self.USER_DIR)
-            '''
-            for line in process.stdout:
-                if mesh_stages[stage] in str(line):
-                    self.update_setProgress(6)
-                    stage +=1
-                    if stage == len(mesh_stages):
-                        break
-                    await asyncio.sleep(0.01)
-            '''
             process.wait()
         self.update_setProgress(78)
     
-    def view_stl(self, **kwargs):
+
+    def snappyContent(self, file, toModify):
+        geometry = ["    {0}\n".format(file.split('.')[0]), \
+                    "    {\n", "        type triSurfaceMesh;\n", \
+                    "        file \"{0}\";\n".format(file), \
+                    "    }\n", "\n"]
+
+        features = ["        {\n", "            file \"{0}.{1}\";\n".format(file.split('.')[0], "eMesh"), \
+                    "            level 2;\n", "        }\n"]
+
+        surfaces = ["        {0}\n".format(file.split('.')[0]), \
+                    "        {\n", "            level (2 2);\n", \
+                    "        }\n", "\n"]
+        
+        if toModify == "geometry":
+            return geometry
+        elif toModify == "features":
+            return features
+        elif toModify == "surfaces":
+            return surfaces
+        
+
+    def view_environment(self, **kwargs):
+        if self.setSuccess:
+            simple.Delete(self.foam_reader)
+            del self.foam_reader
+            if self.changeSim:
+                simple.Delete(self.slice)
+                del self.slice
+                self.changeSim = False
+            self.ctrl.view_reset_camera()
+            self.ctrl.view_update()
+
+        for reader in self.stl_readers:
+            simple.Hide(self.stl_readers[reader], self.view)
+
         toFoam = subprocess.Popen(['paraFoam', '-builtin', '-touch'], cwd=self.USER_DIR)
         toFoam.wait()
 
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
-        self.reader = simple.OpenFOAMReader(FileName=foam_path)
-        environment = simple.Show(self.reader, self.view)
-        environment.Opacity = 0.3
-        simple.SetActiveSource(environment)
+        self.foam_reader = simple.OpenFOAMReader(FileName=foam_path)
+        environment = simple.Show(self.foam_reader, self.view)
+        environment.Opacity = 0.25
         self.view.AxesGrid.Visibility = 1
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
@@ -354,36 +486,37 @@ class Engine:
         await asyncio.sleep(0.01)
         self.mesh()
         await asyncio.sleep(0.05)
-        self.view_stl()
+        self.view_environment()
         await asyncio.sleep(0.01)
+        self.changeFile = True
         self.setSuccess = True
         with self.state:
             self.state.set_running = False
+            self.state.sim_running = False
     
     async def run_set(self, **kwargs):
-        if self.inlet != self.outlet:
-            if self.toSet:
-                simple.Hide(self.stl_reader)
-                self.state.setProgress = 0
-                await asyncio.sleep(0.01)
-                self.state.set_running = True
-                asynchronous.create_task(self._async_set())
+        if self.toSet and not self.state.set_running:
+            self.removeHistory()
+            self.state.setProgress = 0
+            await asyncio.sleep(0.01)
+            self.state.set_running = True
+            asynchronous.create_task(self._async_set())
 
     def set_windSpeed(self, myWindSpeed, **kwargs):
         isPositive = self.validate_number(myWindSpeed)
         if isPositive and self.setSuccess:
-            self.state.windSpeed = myWindSpeed
-            self.toSimulate = True
+            self.windSpeed = float(myWindSpeed)
+            self.state.sim_running = False
             return
-        self.toSimulate = False
+        self.state.sim_running = True
     
     def set_windHeight(self, myWindHeight, **kwargs):
         isPositive = self.validate_number(myWindHeight)
         if isPositive and self.setSuccess:
-            self.state.windHeight = myWindHeight
-            self.toSimulate = True
+            self.windHeight = float(myWindHeight)
+            self.state.sim_running = False
             return
-        self.toSimulate = False
+        self.state.sim_running = True
 
     def set_aeroRoughness(self, aeroRoughness, **kwargs):
         if aeroRoughness == self.Landscape.open:
@@ -406,16 +539,16 @@ class Engine:
     def set_simTime(self, mySimTime, **kwargs):
         isPositive = self.validate_number(mySimTime)
         if isPositive and self.setSuccess:
-            self.state.simTime = mySimTime
-            self.toSimulate = True
+            self.simTime = float(mySimTime)
+            self.state.sim_running = False
             return
-        self.toSimulate = False
+        self.state.sim_running = True
 
     def simplefoam(self, **kwargs):
         # modify ABLConditions Dict
-        v = str(self.state.windSpeed)
-        h = str(self.state.windHeight)
-        t = str(self.state.simTime)
+        v = str(self.windSpeed)
+        h = str(self.windHeight)
+        t = str(self.simTime)
 
         ABL_path = os.path.join(self.USER_DIR, '0', 'include', 'ABLConditions')
         with open(ABL_path, "r", encoding="utf-8") as fr:
@@ -452,20 +585,32 @@ class Engine:
         
             # run simulation
         commands = [['decomposePar', '-force'], ['mpirun', '-np', '12', 'simpleFoam', '-parallel'], \
-                    ['reconstructPar'], ['paraFoam', '-builtin', '-touch']]
+                    ['reconstructPar'],]
+
         for cmd in commands:
             process = subprocess.Popen(cmd, cwd=self.USER_DIR)
             process.wait()
         self.update_simProgress(80)
     
     def view_foam(self, **kwargs):
-        stl_path = os.path.join(self.USER_DIR, 'constant', 'triSurface', self.FILENAME)
+        if self.state.postProcessing:
+            simple.Delete(self.foam_reader)
+            del self.foam_reader
+            if self.changeSim:
+                simple.Delete(self.slice)
+                del self.slice
+            self.ctrl.view_reset_camera()
+            self.ctrl.view_update()
+
+        for reader in self.stl_readers:
+            environment = simple.Show(self.stl_readers[reader], self.view, 'GeometryRepresentation')
+            environment.Opacity = 0.25
+        
+        toFoam = subprocess.Popen(['paraFoam', '-builtin', '-touch'], cwd=self.USER_DIR)
+        toFoam.wait()
+
         foam_file = self.USER_DIR + ".foam"
         foam_path = os.path.join(self.USER_DIR, foam_file)
-
-        self.stl_reader = simple.STLReader(FileNames=[stl_path])
-        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
-        environment.Opacity = 0.25
 
         self.foam_reader = simple.OpenFOAMReader(FileName=foam_path)
         self.foam_reader.MeshRegions = ['internalMesh']
@@ -498,14 +643,14 @@ class Engine:
         uPWF.ScalarRangeInitialized = 1
 
         # Create slice
-        slice = simple.Slice(Input=self.foam_reader)
-        slice.SliceType = 'Plane'
-        slice.HyperTreeGridSlicer = 'Plane'
-        slice.SliceOffsetValues = [0.0]
-        slice.SliceType.Origin = [0.0, 0.0, float(self.state.windHeight)]
-        slice.SliceType.Normal = [0.0, 0.0, 1.0]
+        self.slice = simple.Slice(Input=self.foam_reader)
+        self.slice.SliceType = 'Plane'
+        self.slice.HyperTreeGridSlicer = 'Plane'
+        self.slice.SliceOffsetValues = [0.0]
+        self.slice.SliceType.Origin = [0.0, 0.0, 1.0]
+        self.slice.SliceType.Normal = [0.0, 0.0, 1.0]
 
-        airflow_slice = simple.Show(slice, self.view, 'GeometryRepresentation')
+        airflow_slice = simple.Show(self.slice, self.view, 'GeometryRepresentation')
         airflow_slice.Representation = 'Surface'
         airflow_slice.ColorArrayName = ['POINTS', 'U']
         airflow_slice.LookupTable = uLUT
@@ -535,7 +680,7 @@ class Engine:
         simple.Hide(self.foam_reader)
         
         uLUT.ApplyPreset('Turbo', True)
-        animationScene.AnimationTime = float(self.state.simTime)
+        animationScene.AnimationTime = float(self.simTime)
 
         airflow_slice.SetScalarBarVisibility(self.view, True)
         airflow_slice.RescaleTransferFunctionToDataRange(False, True)
@@ -544,7 +689,8 @@ class Engine:
         self.view.MakeRenderWindowInteractor(True)
         self.ctrl.view_reset_camera()
         self.ctrl.view_update()
-
+        
+        self.changeSim = True
         self.update_simProgress(15)
     
     def update_simProgress(self, delta):
@@ -558,114 +704,27 @@ class Engine:
         self.view_foam()
         await asyncio.sleep(0.05)
         with self.state:
-            self.state.postProcess = False
-            #self.state.sim_running = False
+            self.state.postProcessing = False
+            self.state.sim_running = False
     
     async def run_sim(self, **kwargs):
-        if self.toSimulate:
-            simple.Hide(self.reader)
+        if not self.state.sim_running:
+            self.removeHistory()
             self.state.simProgress = 0
             await asyncio.sleep(0.01)
-            self.state.set_running = True
             self.state.sim_running = True
+            self.state.postProcessing = True
             self.update_simProgress(5)
             await asyncio.sleep(0.01)
             asynchronous.create_task(self._async_simulate())
 
-    def update_slicePos(self, **kwargs):
-        stl_path = os.path.join(self.USER_DIR, 'constant', 'triSurface', self.FILENAME)
-        foam_file = self.USER_DIR + ".foam"
-        foam_path = os.path.join(self.USER_DIR, foam_file)
-
-        self.stl_reader = simple.STLReader(FileNames=[stl_path])
-        environment = simple.Show(self.stl_reader, self.view, 'GeometryRepresentation')
-        environment.Opacity = 0.25
-
-        self.foam_reader = simple.OpenFOAMReader(FileName=foam_path)
-        self.foam_reader.MeshRegions = ['internalMesh']
-        self.foam_reader.CellArrays = ['U']
-        airflow = simple.Show(self.foam_reader, self.view, 'UnstructuredGridRepresentation')
+    def set_slicePos(self, slicePos, **kwargs):
+        if self.state.postProcessing == True:
+            return
+        else:
+            self.slice.SliceType.Origin = [0.0, 0.0, float(slicePos)]
+            self.ctrl.view_update()
         
-        simple.SetActiveSource(environment)
-        simple.SetActiveSource(airflow)
-        animationScene = simple.GetAnimationScene()
-        animationScene.UpdateAnimationUsingDataTimeSteps()
-
-        airflow.ScaleTransferFunction.Points = [-4.672417163848877, 0.0, 0.5, 0.0, 4.776854038238525, 1.0, 0.5, 0.0]
-        airflow.OpacityTransferFunction.Points = [-4.672417163848877, 0.0, 0.5, 0.0, 4.776854038238525, 1.0, 0.5, 0.0]
-        simple.ColorBy(airflow, ('POINTS', 'U', 'Magnitude'))
-        airflow.RescaleTransferFunctionToDataRange(True, False)
-        airflow.SetScalarBarVisibility(self.view, True)
-        self.view.Update()
-
-        uTF2D = simple.GetTransferFunction2D('U')
-
-        # get color transfer function/color map for 'U'
-        uLUT = simple.GetColorTransferFunction('U')
-        uLUT.TransferFunction2D = uTF2D
-        uLUT.RGBPoints = [0.0, 0.231373, 0.298039, 0.752941, 3.1018124603982984, 0.865003, 0.865003, 0.865003, 6.203624920796597, 0.705882, 0.0156863, 0.14902]
-        uLUT.ScalarRangeInitialized = 1.0
-
-        # get opacity transfer function/opacity map for 'U'
-        uPWF = simple.GetOpacityTransferFunction('U')
-        uPWF.Points = [0.0, 0.0, 0.5, 0.0, 6.203624920796597, 1.0, 0.5, 0.0]
-        uPWF.ScalarRangeInitialized = 1
-
-        # Create slice
-        slice = simple.Slice(Input=self.foam_reader)
-        slice.SliceType = 'Plane'
-        slice.HyperTreeGridSlicer = 'Plane'
-        slice.SliceOffsetValues = [0.0]
-        slice.SliceType.Origin = [0.0, 0.0, float(self.state.slicePos)]
-        slice.SliceType.Normal = [0.0, 0.0, 1.0]
-
-        airflow_slice = simple.Show(slice, self.view, 'GeometryRepresentation')
-        airflow_slice.Representation = 'Surface'
-        airflow_slice.ColorArrayName = ['POINTS', 'U']
-        airflow_slice.LookupTable = uLUT
-        airflow_slice.SelectTCoordArray = 'None'
-        airflow_slice.SelectNormalArray = 'None'
-        airflow_slice.SelectTangentArray = 'None'
-        airflow_slice.OSPRayScaleArray = 'U'
-        airflow_slice.OSPRayScaleFunction = 'PiecewiseFunction'
-        airflow_slice.SelectOrientationVectors = 'U'
-        airflow_slice.ScaleFactor = 1.4000000000000001
-        airflow_slice.SelectScaleArray = 'None'
-        airflow_slice.GlyphType = 'Arrow'
-        airflow_slice.GlyphTableIndexArray = 'None'
-        airflow_slice.GaussianRadius = 0.07
-        airflow_slice.SetScaleArray = ['POINTS', 'U']
-        airflow_slice.ScaleTransferFunction = 'PiecewiseFunction'
-        airflow_slice.OpacityArray = ['POINTS', 'U']
-        airflow_slice.OpacityTransferFunction = 'PiecewiseFunction'
-        airflow_slice.DataAxesGrid = 'GridAxesRepresentation'
-        airflow_slice.PolarAxes = 'PolarAxesRepresentation'
-        airflow_slice.SelectInputVectors = ['POINTS', 'U']
-        airflow_slice.WriteLog = ''
-
-        airflow_slice.ScaleTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
-        airflow_slice.OpacityTransferFunction.Points = [-1.3226988315582275, 0.0, 0.5, 0.0, 1.0460031032562256, 1.0, 0.5, 0.0]
-
-        simple.Hide(self.foam_reader)
-        
-        uLUT.ApplyPreset('Turbo', True)
-        animationScene.AnimationTime = float(self.state.simTime)
-
-        airflow_slice.SetScalarBarVisibility(self.view, True)
-        airflow_slice.RescaleTransferFunctionToDataRange(False, True)
-        self.view.Update()
-
-        self.view.MakeRenderWindowInteractor(True)
-        self.ctrl.view_reset_camera()
-        self.ctrl.view_update()
-
-    async def _async_view(self):
-        self.update_slicePos()
-
-    def set_slicePos(self, **kwargs):
-        asynchronous.create_task(self._async_view())
-        
-
     # Selection Change
     def actives_change(self, ids):
         _id = ids[0]
@@ -711,11 +770,11 @@ class Engine:
 
     def environment_control_panel(self):
         with self.ui_card(title="Set Environment", \
-                          text="Convert the uploaded STL file to a simulation-compatible \
-                            file and set the boundaries and patches of simulation.", \
+                          text="Convert the uploaded STL files to a simulation-compatible \
+                            files and set the boundaries and patches of simulation.", \
                             ui_name="environment"):
             vuetify.VCardSubtitle(
-                "Upload your STL File"
+                "Upload your Binary STL Files"
             )
             vuetify.VFileInput(
                 multiple=True,
@@ -726,14 +785,13 @@ class Engine:
                 hide_details=True,
                 accept=".stl",
                 __properties=["accept"],
-                classes="mx-2"
-            )  
-            
+                classes="ma-2"
+            )
             vuetify.VCardSubtitle(
                 "Input the dimensions of the block that delimits the scope of simulation and \
                     select also the patches from which the natural airflow will come in and out. \
                     Note that the dimensions are measured from the center ground of the geometry \
-                        found in the uploaded STL file."
+                        found in the uploaded STL files."
             )
             vuetify.VTextField(
                 label="Length",
@@ -800,7 +858,7 @@ class Engine:
                     vuetify.VBtn(
                         "Set",
                         click=self.run_set,
-                        disabled=("set_running", False),
+                        disabled=("set_running", True),
                         variant="tonal",
                         classes="pa-3"
                     )
@@ -861,7 +919,7 @@ class Engine:
                 hide_details=True,
                 dense=True,
                 outlined=True,
-                classes="ms-2",
+                classes="ma-2",
             )
             vuetify.VTextField(
                 label="Simulation Time",
@@ -870,36 +928,34 @@ class Engine:
                 suffix="seconds",
                 classes="ma-2"
                 )
-            vuetify.VCardText(
-                "You can only simulate once. Do you wish to continue?"
-                )
             with vuetify.VRow(classes="pt-1", align="center", dense=True):
                 with vuetify.VCol(classes="text-center", cols="12"):
                     vuetify.VBtn(
                         "Simulate",
                         click=self.run_sim,
-                        disabled=("sim_running", False),
+                        disabled=("sim_running", True),
                         variant="tonal",
-                        classes="pa-3"
+                        classes="mb-2"
                     )
-            vuetify.VTextField(
-                label="Filter Slice Position",
-                v_model=("slicePos", self.DEFAULT_VALUE),
-                disabled=("postProcess", True),
-                hint="Input a positive number",
-                suffix="meters",
-                classes="ma-2"
-                )
             vuetify.VDivider(classes="mt-3")
             vuetify.VProgressLinear(
                 absolute=True,
-                #bottom=True,
                 color="teal",
                 height="20",
                 v_model=("simProgress", 0),
                 classes="pa-2"
             )
             vuetify.VDivider(classes="mt-5")
+            vuetify.VCardSubtitle("Adjust the filter position")
+            vuetify.VSlider(
+                    label="Height [m]",
+                    v_model=("slicePos", 1),
+                    min=0.1, max=10, step=0.2,
+                    dense=True, hide_details=True,
+                    thumb_label=True,
+                    disabled=("postProcessing", True),
+                    classes = "pa-2"
+                )
             vuetify.VAlert(
                 "The simulation will not run if there is no environment set and there are negative inputs.",
                 type="warning",

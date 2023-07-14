@@ -22,14 +22,6 @@ internalField   uniform $turbulentEpsilon;
 
 boundaryField
 {
-    classroom
-    {
-        type            epsilonWallFunction;
-        Cmu             0.09;
-        kappa           0.4;
-        E               9.8;
-        value           $internalField;
-    }
 
     outlet
     {
@@ -59,7 +51,3 @@ boundaryField
         type            slip;
     }
 
-}
-
-
-// ************************************************************************* //

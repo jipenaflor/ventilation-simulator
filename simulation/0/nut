@@ -22,13 +22,6 @@ boundaryField
 {
     #include "include/ABLConditions"
 
-    classroom
-    {
-        type            nutkAtmRoughWallFunction;
-        z0              $z0;
-        value           uniform 0.0;
-    }
-    
     inlet
     {
         type            calculated;
@@ -39,13 +32,6 @@ boundaryField
     {
         type            calculated;
         value           uniform 0;
-    }
-
-    classroom
-    {
-        type            nutkAtmRoughWallFunction;
-        z0              $z0;
-        value           uniform 0.0;
     }
 
     frontAndBack
@@ -65,8 +51,4 @@ boundaryField
         type            calculated;
         value           uniform 0;
     }
-    
-}
 
-
-// ************************************************************************* //

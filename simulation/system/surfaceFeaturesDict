@@ -13,7 +13,8 @@ FoamFile
 }
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
-surfaces ("classroom.stl");
+surfaces (
+);
 
 // Identify a feature when angle between faces < includedAngle
 includedAngle       150;
