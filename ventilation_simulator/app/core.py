@@ -138,6 +138,9 @@ class Engine:
                     simple.Delete(self.stl_readers[reader])
             if self.changeFile:
                 simple.Delete(self.foam_reader)
+            if self.changeSim:
+                simple.Delete(self.slice)
+                self.changeSim = False
             self.ctrl.view_update()
             self.stl_readers.clear()
             self.toSet = False
@@ -256,16 +259,12 @@ class Engine:
         self.validate_patch()
 
     def removeHistory(self):
-        if os.path.exists(os.path.join(self.USER_DIR, '{0}'.format(self.simTime))):
-            shutil.rmtree(os.path.join(self.USER_DIR, '{0}'.format(self.simTime)))
-        
-        processors = ['processor{0}'.format(i) for i in range(12)]
+        #os.remove(os.path.join(self.USER_DIR, '{0}.foam'.format(self.USER_DIR.split('/')[1])))
+        orig = ['0', 'constant', 'system', '{0}.foam'.format(self.USER_DIR.split('/')[1])]
+        for dir in os.listdir(self.USER_DIR):
+            if dir not in orig:
+                shutil.rmtree(os.path.join(self.USER_DIR, dir))
 
-        if all([os.path.exists(proc) for proc in processors]):
-            for proc in processors:
-                if os.path.exists(os.path.join(self.USER_DIR, proc, '{0}'.format(self.simTime))):
-                    shutil.rmtree(os.path.join(self.USER_DIR, proc, '{0}'.format(self.simTime)))
-            
     def convert(self, **kwargs):
         conversion_template = os.path.join('simulation', 'system', 'surfaceFeaturesDict')
         conversion_path = os.path.join(self.USER_DIR, 'system', 'surfaceFeaturesDict')
@@ -950,7 +949,7 @@ class Engine:
             vuetify.VSlider(
                     label="Height [m]",
                     v_model=("slicePos", 1),
-                    min=0.1, max=10, step=0.2,
+                    min=0.1, max=10, step=0.1,
                     dense=True, hide_details=True,
                     thumb_label=True,
                     disabled=("postProcessing", True),
