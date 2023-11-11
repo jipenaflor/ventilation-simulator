@@ -7,11 +7,13 @@ A Trame application that performs indoor simulation of natural ventilation using
    
    The widget allows the user to upload multiple binary STL files that make up the structures of his environment. It interfaces with the ParaView widget to render the geometries, as well as their dimensions.
 
-2. Input Fields for Boundary Setting and Menu for Patch Selection
+   ![Upload Form](https://github.com/jipenaflor/ventilation-simulator/tree/main/images/uploadResults.jpg)
+
+3. Input Fields for Boundary Setting and Menu for Patch Selection
    
    The input fields prompt the user to input data of type positive number. The inputs serve as the dimensions of the block that determines the boundaries of simulation. The menu allows the user to specify as to which side of the block will the airflow come in (inlet) and out (outlet).
 
-3. Button to Set the Environment
+4. Button to Set the Environment
 
    The widget is locked until all the inputs are valid, i.e., there are uploaded binary STL files and valid input dimensions. When clicked, it runs the necessary OpenFOAM operations to convert the uploaded geometries and set the user environment with the specified properties. When the processes are done, the resulting environment is rendered in the ParaView widget.
 
