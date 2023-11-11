@@ -1,5 +1,5 @@
 # Ventilation Simulator
-A web application that performs indoor simulation of natural ventilation using OpenFOAM and ParaView. It utilized trame, a Python integration framewok by Kitware, and was built to run in a development server in UP-EEEI HPC cluster.
+A web application that performs indoor simulation of natural ventilation using OpenFOAM and ParaView. It utilized trame, a Python integration framewok by Kitware, and was built to run only at a development server from the UP-EEEI HPC cluster.
 
 ## Features of the Application
 ### Set Environment Control Panel
