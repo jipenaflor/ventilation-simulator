@@ -3,7 +3,7 @@ A Trame application that performs indoor simulation of natural ventilation using
 
 ## Features of the Application
 ### Set Environment Control Panel
-1. Binary STL Files Upload Form
+1. Binary STL Files Upload Form..
 ...The widget allows the user to upload multiple binary STL files that make up the structures of his environment. It interfaces with the ParaView widget to render the geometries, as well as their dimensions.
 
 2. Input Fields for Boundary Setting and Menu for Patch Selection
